@@ -1,4 +1,4 @@
-// Enhanced Doom-like Game with Additional Features
+// Enhanced Doom-like Game with Proper Collision, AI Fixes, and 3D Rendering
 
 const canvas = document.getElementById("gameCanvas");
 const ctx = canvas.getContext("2d");
@@ -32,8 +32,7 @@ const levels = [
 
 const player = { x: 150, y: 150, angle: 0, health: 100 };
 const enemies = [
-    { x: 300, y: 200, health: 50, speed: ENEMY_SPEED },
-    { x: 500, y: 400, health: 50, speed: ENEMY_SPEED }
+    { x: 300, y: 200, health: 50, speed: ENEMY_SPEED, angle: 0 }
 ];
 const pickups = [
     { x: 350, y: 250, type: 'ammo' },
@@ -51,16 +50,18 @@ let keys = {};
 window.addEventListener("keydown", (e) => keys[e.key] = true);
 window.addEventListener("keyup", (e) => keys[e.key] = false);
 
+function isWall(x, y) {
+    return levels[currentLevel][Math.floor(y / TILE_SIZE)][Math.floor(x / TILE_SIZE)] !== 0;
+}
+
 function updatePlayer() {
     let newX = player.x, newY = player.y;
     if (keys["ArrowUp"]) { newX += Math.cos(player.angle) * MOVE_SPEED; newY += Math.sin(player.angle) * MOVE_SPEED; }
     if (keys["ArrowDown"]) { newX -= Math.cos(player.angle) * MOVE_SPEED; newY -= Math.sin(player.angle) * MOVE_SPEED; }
+    if (!isWall(newX, player.y)) player.x = newX;
+    if (!isWall(player.x, newY)) player.y = newY;
     if (keys["ArrowLeft"]) player.angle -= ROTATE_SPEED;
     if (keys["ArrowRight"]) player.angle += ROTATE_SPEED;
-    if (levels[currentLevel][Math.floor(newY / TILE_SIZE)][Math.floor(newX / TILE_SIZE)] === 0) {
-        player.x = newX;
-        player.y = newY;
-    }
 }
 
 function moveEnemies() {
@@ -68,31 +69,29 @@ function moveEnemies() {
         let dx = player.x - enemy.x;
         let dy = player.y - enemy.y;
         let dist = Math.sqrt(dx * dx + dy * dy);
+        enemy.angle = Math.atan2(dy, dx);
         if (dist > 20) {
-            enemy.x += (dx / dist) * enemy.speed;
-            enemy.y += (dy / dist) * enemy.speed;
+            let newX = enemy.x + Math.cos(enemy.angle) * enemy.speed;
+            let newY = enemy.y + Math.sin(enemy.angle) * enemy.speed;
+            if (!isWall(newX, newY)) {
+                enemy.x = newX;
+                enemy.y = newY;
+            }
         }
     }
 }
 
-function handlePickups() {
-    for (let i = pickups.length - 1; i >= 0; i--) {
-        let pickup = pickups[i];
-        let dx = player.x - pickup.x;
-        let dy = player.y - pickup.y;
-        let dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist < PICKUP_RADIUS) {
-            if (pickup.type === 'ammo') ammo += 5;
-            if (pickup.type === 'health' && health < 100) health += 25;
-            pickups.splice(i, 1);
+function castRays() {
+    for (let i = 0; i < NUM_RAYS; i++) {
+        let rayAngle = player.angle - (Math.PI / 6) + (i * (Math.PI / 3) / NUM_RAYS);
+        let x = player.x, y = player.y;
+        while (!isWall(x, y)) {
+            x += Math.cos(rayAngle);
+            y += Math.sin(rayAngle);
         }
-    }
-}
-
-function drawPickups() {
-    for (let pickup of pickups) {
-        let img = pickup.type === 'ammo' ? ammoTexture : healthTexture;
-        ctx.drawImage(img, pickup.x - 16, pickup.y - 16, 32, 32);
+        let dist = Math.sqrt((x - player.x) ** 2 + (y - player.y) ** 2);
+        ctx.fillStyle = `rgba(255, 255, 255, ${1 - (dist / 500)})`;
+        ctx.fillRect(i * (canvas.width / NUM_RAYS), canvas.height / 2 - (500 / dist), canvas.width / NUM_RAYS, (1000 / dist));
     }
 }
 
@@ -101,7 +100,10 @@ function shoot() {
         lastShot = Date.now();
         ammo--;
         enemies.forEach((enemy, index) => {
-            if (Math.abs(enemy.x - player.x) < 100 && Math.abs(enemy.y - player.y) < 100) {
+            let dx = enemy.x - player.x;
+            let dy = enemy.y - player.y;
+            let angleToEnemy = Math.atan2(dy, dx);
+            if (Math.abs(angleToEnemy - player.angle) < 0.3) {
                 enemy.health -= 25;
                 if (enemy.health <= 0) {
                     enemies.splice(index, 1);
@@ -117,9 +119,8 @@ window.addEventListener("click", shoot);
 function gameLoop() {
     updatePlayer();
     moveEnemies();
-    handlePickups();
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    drawPickups();
+    castRays();
     requestAnimationFrame(gameLoop);
 }
 
